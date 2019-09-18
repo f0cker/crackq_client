@@ -1,0 +1,16 @@
+*.swp
+*.pyc
+__pycache__
+*pyhashcat/
+*.log
+*crackq.log*
+*.cracked
+*.hashes
+docker/build/
+*egg-info*
+build*
+dist/
+.pytest_cache
+crackq.egg-info
+dist/
+old/
