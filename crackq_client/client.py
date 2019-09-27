@@ -19,7 +19,7 @@ from bs4 import BeautifulSoup
 import crackq_client.client_rest as client_rest
 
 if sys.version_info.major < 3:
-    print('Crackqcli requires Python version 3')
+    print('Crackq_client requires Python version 3')
     exit(1)
 from pathlib import Path
 

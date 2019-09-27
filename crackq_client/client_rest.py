@@ -11,11 +11,15 @@ import logging
 import json
 import os
 import sys
-from pathlib import Path
 import re
 from requests import Session
 from bs4 import BeautifulSoup
 from requests_ntlm import HttpNtlmAuth
+
+if sys.version_info.major < 3:
+    print('Crackq_client requires Python version 3')
+    exit(1)
+from pathlib import Path
 
 os.umask(0o077)
 
