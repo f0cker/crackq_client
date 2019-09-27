@@ -15,12 +15,12 @@ import os
 import logging
 import pprint
 import sys
+from bs4 import BeautifulSoup
 import crackq_client.client_rest as client_rest
 
 if sys.version_info.major < 3:
     print('Crackqcli requires Python version 3')
     exit(1)
-
 from pathlib import Path
 
 os.umask(0o077)
@@ -125,17 +125,22 @@ def parse_args():
                           ' including username (admin:deadbeef)')
     hc_group.add_argument('--disable_brain', default=False,
                           action='store_true', help='Manually disable brain')
-    misc_group.add_argument('--user', default='admin', type=str,
+    misc_group.add_argument('--user', default=None, type=str,
                             help='Username to use')
     misc_group.add_argument('--passwd', default=None, type=str,
                             help='Password to use, leave this blank'
                             'to enter securely')
+    misc_group.add_argument('--auth_type', default='ldap', type=str,
+                            help='Authentication type to use, ldap for'
+                            ' standard ldap post auth or sso for redirecting'
+                            ' to configured sso server'
+                            ' (currently only saml2 is supported)')
     misc_group.add_argument('--proxy', default=None, type=str,
                             help='Set custom proxy options')
     misc_group.add_argument('--disable_ssl_verify', default=False,
                             action='store_true', help='Disable SSL certificate'
-                            'verification. Default is False (which verifies'
-                            'the cert)')
+                            ' verification. Default is False (which verifies'
+                            ' the cert)')
     return parser.parse_args()
 
 
@@ -190,26 +195,65 @@ def main():
             exit(1)
         resp = client.add_job(query_args)
     elif opts.login:
-        query_args = {
-            'user': opts.user if opts.user else getpass.getpass(
-                'Enter Username:'),
-            'password': opts.passwd if opts.passwd else getpass.getpass(
-                'Enter Password:'),
-                }
-        resp = client.login(query_args)
-        if resp.status_code == 200:
-            token = resp.cookies.get_dict()
-            token_path = str(Path.home() / '.crackq/token.txt')
+        if opts.auth_type == 'sso':
+            user = opts.user if opts.user else getpass.getpass('Enter Username:')
+            passwd = opts.passwd if opts.passwd else getpass.getpass('Enter Password:')
+
+            resp = client.sso_login()
+            if resp.status_code == 401:
+                resp = client.sso_login(user=user, passwd=passwd, atype='ntlm')
+            elif resp.status_code == 200:
+                resp = client.sso_login(url=resp.url, user=user,
+                                        passwd=passwd, atype='forms')
             try:
-                with open(token_path, 'w') as fh_token:
-                    fh_token.write(json.dumps(token))
-            except json.decoder.JSONDecodeError:
-                logger.error('Auth failed or invalid token returned')
-            except FileNotFoundError:
-                logger.debug('No token file found')
-                Path.mkdir(Path.home() / '.crackq', exist_ok=True)
-                with open(token_path, 'w') as fh_token:
-                    fh_token.write(json.dumps(token))
+                if resp.status_code == 302:
+                    token = resp.cookies.get_dict()
+                    token_path = str(Path.home() / '.crackq/token.txt')
+                    try:
+                        with open(token_path, 'w') as fh_token:
+                            fh_token.write(json.dumps(token))
+                    except json.decoder.JSONDecodeError:
+                        logger.error('Auth failed or invalid token returned')
+                    except FileNotFoundError:
+                        logger.debug('No token file found')
+                        Path.mkdir(Path.home() / '.crackq', exist_ok=True)
+                        with open(token_path, 'w') as fh_token:
+                            fh_token.write(json.dumps(token))
+                    finally:
+                        passwd = '******************'
+                        del passwd
+                        print('Login Success')
+            except AttributeError:
+                print('Login failed')
+        else:
+            query_args = {
+                'user': opts.user if opts.user else getpass.getpass(
+                    'Enter Username:'),
+                'password': opts.passwd if opts.passwd else getpass.getpass(
+                    'Enter Password:'),
+            }
+            resp = client.login(query_args)
+            try:
+                if resp.status_code == '200':
+                    print('updaing cookie')
+                    token = resp.cookies.get_dict()
+                    token_path = str(Path.home() / '.crackq/token.txt')
+                    try:
+                        with open(token_path, 'w') as fh_token:
+                            fh_token.write(json.dumps(token))
+                    except json.decoder.JSONDecodeError:
+                        logger.error('Auth failed or invalid token returned')
+                    except FileNotFoundError:
+                        logger.debug('No token file found')
+                        Path.mkdir(Path.home() / '.crackq', exist_ok=True)
+                        with open(token_path, 'w') as fh_token:
+                            fh_token.write(json.dumps(token))
+                    finally:
+                        passwd = '******************'
+                        del passwd
+                        print('Login Success')
+            except AttributeError:
+                print('Login failed')
 
     elif opts.logout:
         resp = client.logout()
@@ -234,8 +278,10 @@ def main():
         resp = client.options()
     else:
         resp = client.q_all()
-    print('Status: {}'.format(resp.status_code))
     try:
+        print('Status: {}'.format(resp.status_code))
         pprint.pprint(resp.json())
+    except AttributeError as err:
+        logger.debug('No response {}'.format(err))
     except json.decoder.JSONDecodeError:
         pass

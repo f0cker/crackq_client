@@ -7,13 +7,15 @@ A queuing system for multi-user hash cracking using Hashcat.
 
 Author: dturner@trustwave (@f0cker_)
 """
-
 import logging
 import json
 import os
 import sys
 from pathlib import Path
+import re
 from requests import Session
+from bs4 import BeautifulSoup
+from requests_ntlm import HttpNtlmAuth
 
 os.umask(0o077)
 
@@ -145,6 +147,86 @@ class ClientReq():
                               proxies=self.proxy,
                               headers=self.headers,
                               verify=self.verify)
+
+    def sso_login(self, user=None, passwd=None,
+                  atype=None, url=None, mfa=True):
+        """SAML2 SSO Login"""
+        if not url:
+            url = self.url + '/api/sso'
+        if user and passwd:
+            if atype == 'forms':
+                data_dict = {
+                    'UserName': user,
+                    'Password': passwd,
+                    'AuthMethod': 'FormsAuthentication',
+                }
+                req1 = self.sess.post(url,
+                                      data=data_dict,
+                                      proxies=self.proxy,
+                                      headers=self.headers,
+                                      verify=self.verify)
+            elif atype == 'ntlm':
+                self.sess.auth = HttpNtlmAuth(user, passwd)
+        else:
+            return self.sess.get(url,
+                                 proxies=self.proxy,
+                                 headers=self.headers,
+                                 verify=self.verify)
+        if mfa and '302' in str(req1.history):
+            print('Login OK. Starting MFA...')
+            data_dict2 = {}
+            if req1.status_code == 200:
+                req1_soup = BeautifulSoup(req1.text, "lxml")
+                for input_tag in req1_soup.find_all(re.compile('input')):
+                    name = input_tag.get('name', '')
+                    value = input_tag.get('value', '')
+                    data_dict2[name] = value
+            else:
+                logger.warning('Login Error: {}'.format(req1.status_code))
+
+            data_dict2['AuthMethod'] = 'AzureMfaServerAuthentication'
+            mfa_url = req1.url
+            print('Waiting for MFA...')
+            req2 = self.sess.post(mfa_url,
+                                  proxies=self.proxy,
+                                  data=data_dict2,
+                                  verify=self.verify)
+            mfa_soup2 = BeautifulSoup(req2.text, "lxml")
+            data_dict3 = {}
+            for input_tag in mfa_soup2.find_all(re.compile('input')):
+                name = input_tag.get('name', '')
+                value = input_tag.get('value', '')
+                data_dict3[name] = value
+
+            data_dict3['AuthMethod'] = 'AzureMfaServerAuthentication'
+            req3 = self.sess.post(mfa_url,
+                                  proxies=self.proxy,
+                                  data=data_dict3,
+                                  verify=self.verify)
+            req3_soup = BeautifulSoup(req3.text, 'lxml')
+            saml_resp = None
+            for input_tag in req3_soup.find_all(re.compile('input')):
+                if input_tag.get('name') == 'SAMLResponse':
+                    saml_resp = input_tag.get('value')
+                    login_url = self.url + '/api/sso'
+            if saml_resp:
+                data_dict4 = {
+                    'SAMLResponse': saml_resp,
+                }
+                req4 = self.sess.post(login_url,
+                                      proxies=self.proxy,
+                                      data=data_dict4,
+                                      allow_redirects=False,
+                                      headers=self.headers,
+                                      verify=self.verify)
+                return req4
+            else:
+                return 'Error'
+        elif not mfa and '302' in str(req1.history):
+            ###***this needs testing against a server with no mfa
+            return req1
+        else:
+            return 'Error'
 
     def logout(self):
         """Logout"""

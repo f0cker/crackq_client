@@ -7,7 +7,7 @@ with open("README.md", "r") as fh:
     setup(
         name='crackq_client',
         author='Daniel Turner',
-        version='0.0.1',
+        version='0.0.1a',
         packages=['crackq_client'],
         description="RESTful client for CrackQ",
         long_description=long_description,
@@ -16,6 +16,9 @@ with open("README.md", "r") as fh:
         install_requires=[
             'idna>=2.8',
             'requests>=2.22.0',
+            'requests-ntlm==1.1.0',
+            'bs4==0.0.1',
+            'lxml==4.4.1',
             ],
         classifiers=[
             "Programming Language :: Python :: 3",
