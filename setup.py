@@ -18,7 +18,7 @@ with open("README.md", "r") as fh:
             'requests>=2.22.0',
             'requests-ntlm==1.1.0',
             'bs4==0.0.1',
-            'lxml==4.4.1',
+            'lxml==4.6.2',
             ],
         classifiers=[
             "Programming Language :: Python :: 3",
